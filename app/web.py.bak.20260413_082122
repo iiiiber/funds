@@ -1,0 +1,280 @@
+"""Flask Web 应用"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from flask import Flask, jsonify, render_template, request
+import json
+from datetime import datetime
+
+from core.fund_api import get_realtime_quote, get_historical_nav, POPULAR_FUNDS
+from core.holdings import HoldingsManager
+from core.analysis import analyze_fund, calculate_volatility, calculate_sharpe_ratio
+from core.recommender import (
+    SmartRecommender, RecommendType, ALL_FUND_POOL, 
+    FUND_CATEGORIES, quick_recommend,
+    BROAD_INDEX_FUNDS, INDUSTRY_FUNDS, BOND_FUNDS, QDII_FUNDS
+)
+
+app = Flask(__name__, template_folder='templates')
+mgr = HoldingsManager()
+recommender = SmartRecommender()
+
+
+@app.route('/')
+def index():
+    """主页"""
+    return render_template('index.html')
+
+
+@app.route('/api/holdings')
+def api_holdings():
+    """获取持仓列表"""
+    holdings = mgr.list()
+    
+    # 补充实时行情
+    result = []
+    for h in holdings:
+        quote = get_realtime_quote(h['code'])
+        if quote:
+            cost = h.get('cost', 0)
+            profit_pct = ((quote['price'] - cost) / cost * 100) if cost > 0 else 0
+            result.append({
+                **h,
+                'current_nav': quote['price'],
+                'change_pct': quote['change_pct'],
+                'profit_pct': round(profit_pct, 2),
+                'update_time': quote['update_time'],
+            })
+        else:
+            result.append({**h, 'error': '获取失败'})
+    
+    return jsonify({'success': True, 'data': result})
+
+
+@app.route('/api/holdings', methods=['POST'])
+def api_add_holding():
+    """添加持仓"""
+    data = request.json
+    code = data.get('code', '').strip()
+    name = data.get('name', '')
+    
+    if not code:
+        return jsonify({'success': False, 'error': '请输入基金代码'})
+    
+    # 自动获取基金名称
+    if not name:
+        quote = get_realtime_quote(code)
+        if quote:
+            name = quote['name']
+    
+    success = mgr.add(
+        code=code,
+        name=name,
+        shares=data.get('shares', 0),
+        cost=data.get('cost', 0),
+        note=data.get('note', '')
+    )
+    
+    if success:
+        return jsonify({'success': True, 'message': f'已添加 {name}'})
+    else:
+        return jsonify({'success': False, 'error': '该基金已存在'})
+
+
+@app.route('/api/holdings/<code>', methods=['DELETE'])
+def api_delete_holding(code):
+    """删除持仓"""
+    success = mgr.remove(code)
+    return jsonify({'success': success, 'message': '已删除' if success else '删除失败'})
+
+
+@app.route('/api/fund/<code>')
+def api_fund_detail(code):
+    """获取基金详情"""
+    quote = get_realtime_quote(code)
+    nav_list = get_historical_nav(code, 90)
+    
+    if nav_list:
+        analysis = analyze_fund(code, nav_list)
+    else:
+        analysis = {}
+    
+    return jsonify({
+        'success': True,
+        'quote': quote,
+        'analysis': analysis
+    })
+
+
+@app.route('/api/recommend')
+def api_recommend():
+    """智能推荐基金（支持多种推荐策略）"""
+    
+    # 获取参数
+    recommend_type = request.args.get('type', 'momentum')
+    category = request.args.get('category', 'all')
+    limit = min(int(request.args.get('limit', 6)), 20)
+    
+    # 获取持仓列表（用于排除）
+    holdings = mgr.list()
+    exclude_codes = [h['code'] for h in holdings]
+    
+    # 推荐类型映射
+    rec_type_map = {
+        'momentum': RecommendType.MOMENTUM,
+        'contrarian': RecommendType.CONTRARIAN,
+        'low_vol': RecommendType.LOW_VOLATILITY,
+        'high_sharpe': RecommendType.HIGH_SHARPE,
+        'diversify': RecommendType.DIVERSIFICATION,
+    }
+    rec_type = rec_type_map.get(recommend_type, RecommendType.MOMENTUM)
+    
+    # 获取基金池及其分类名称
+    fund_pool = FUND_CATEGORIES.get(category, FUND_CATEGORIES['all'])[1]
+    
+    # 构建代码到分类的映射
+    code_to_category = {}
+    category_names = {
+        'broad_index': '宽基指数',
+        'industry': '行业主题',
+        'bond': '债券稳健',
+        'qdii': '海外QDII',
+        'all': '全部'
+    }
+    
+    # 执行推荐
+    results = recommender.recommend(
+        fund_pool=fund_pool,
+        fund_names=ALL_FUND_POOL,
+        exclude_codes=exclude_codes,
+        recommend_type=rec_type,
+        limit=limit,
+        get_nav_func=get_historical_nav,
+    )
+    
+    # 获取实时行情，并更新基金名称和分类信息
+    for r in results:
+        # 获取基金所属分类
+        for cat_key, cat_funds in [('broad_index', BROAD_INDEX_FUNDS), 
+                                     ('industry', INDUSTRY_FUNDS),
+                                     ('bond', BOND_FUNDS),
+                                     ('qdii', QDII_FUNDS)]:
+            if r['code'] in cat_funds:
+                r['category'] = category_names.get(cat_key, cat_key)
+                break
+        else:
+            r['category'] = '其他'
+        
+        # 获取实时行情
+        quote = get_realtime_quote(r['code'])
+        if quote:
+            r['current_nav'] = quote['price']
+            r['change_pct'] = quote['change_pct']
+            r['update_time'] = quote['update_time']
+            # 使用API返回的基金名称
+            if quote.get('name'):
+                r['name'] = quote['name']
+    
+    return jsonify({
+        'success': True,
+        'data': results,
+        'recommend_type': recommend_type,
+        'category': category,
+        'total_candidates': len(fund_pool),
+    })
+
+
+@app.route('/api/recommend/similar')
+def api_similar_funds():
+    """查找相似基金"""
+    target_code = request.args.get('code', '')
+    limit = min(int(request.args.get('limit', 5)), 20)
+    
+    if not target_code:
+        return jsonify({'success': False, 'error': '缺少目标基金代码'})
+    
+    # 获取持仓列表（用于排除）
+    holdings = mgr.list()
+    exclude_codes = [h['code'] for h in holdings]
+    
+    # 获取全部基金池
+    fund_pool = list(ALL_FUND_POOL.keys())
+    
+    # 查找相似基金
+    results = recommender.find_similar_funds(
+        target_code=target_code,
+        fund_pool=fund_pool,
+        fund_names=ALL_FUND_POOL,
+        exclude_codes=exclude_codes,
+        limit=limit,
+        get_nav_func=get_historical_nav,
+    )
+    
+    # 获取实时行情，并更新基金名称
+    for r in results:
+        quote = get_realtime_quote(r['code'])
+        if quote:
+            r['current_nav'] = quote['price']
+            r['change_pct'] = quote['change_pct']
+            # 使用API返回的基金名称
+            if quote.get('name'):
+                r['name'] = quote['name']
+    
+    return jsonify({
+        'success': True,
+        'data': results,
+        'target_code': target_code,
+    })
+
+
+@app.route('/api/recommend/portfolio')
+def api_portfolio_analysis():
+    """持仓组合分析"""
+    holdings = mgr.list()
+    
+    if not holdings:
+        return jsonify({
+            'success': True,
+            'data': {
+                'avg_volatility': 0,
+                'avg_sharpe': 0,
+                'avg_momentum': 0,
+                'diversification_score': 0,
+                'risk_level': '暂无持仓',
+                'recommendations': []
+            }
+        })
+    
+    # 分析组合
+    analysis = recommender.get_portfolio_analysis(holdings, get_historical_nav)
+    
+    # 生成个性化推荐
+    exclude_codes = [h['code'] for h in holdings]
+    
+    # 根据风险等级推荐互补基金
+    risk_rec_type = RecommendType.DIVERSIFICATION
+    if analysis['risk_level'] == '激进型':
+        risk_rec_type = RecommendType.LOW_VOLATILITY
+    elif analysis['risk_level'] == '保守型':
+        risk_rec_type = RecommendType.MOMENTUM
+    
+    recommendations = recommender.recommend(
+        fund_pool=list(ALL_FUND_POOL.keys()),
+        fund_names=ALL_FUND_POOL,
+        exclude_codes=exclude_codes,
+        recommend_type=risk_rec_type,
+        limit=3,
+        get_nav_func=get_historical_nav,
+    )
+    
+    analysis['recommendations'] = recommendations
+    
+    return jsonify({
+        'success': True,
+        'data': analysis
+    })
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=True)

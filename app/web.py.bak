@@ -1,0 +1,131 @@
+"""Flask Web 应用"""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from flask import Flask, jsonify, render_template, request
+import json
+from datetime import datetime
+
+from core.fund_api import get_realtime_quote, get_historical_nav, POPULAR_FUNDS
+from core.holdings import HoldingsManager
+from core.analysis import analyze_fund, calculate_volatility, calculate_sharpe_ratio
+
+app = Flask(__name__, template_folder='templates')
+mgr = HoldingsManager()
+
+
+@app.route('/')
+def index():
+    """主页"""
+    return render_template('index.html')
+
+
+@app.route('/api/holdings')
+def api_holdings():
+    """获取持仓列表"""
+    holdings = mgr.list()
+    
+    # 补充实时行情
+    result = []
+    for h in holdings:
+        quote = get_realtime_quote(h['code'])
+        if quote:
+            cost = h.get('cost', 0)
+            profit_pct = ((quote['price'] - cost) / cost * 100) if cost > 0 else 0
+            result.append({
+                **h,
+                'current_nav': quote['price'],
+                'change_pct': quote['change_pct'],
+                'profit_pct': round(profit_pct, 2),
+                'update_time': quote['update_time'],
+            })
+        else:
+            result.append({**h, 'error': '获取失败'})
+    
+    return jsonify({'success': True, 'data': result})
+
+
+@app.route('/api/holdings', methods=['POST'])
+def api_add_holding():
+    """添加持仓"""
+    data = request.json
+    code = data.get('code', '').strip()
+    name = data.get('name', '')
+    
+    if not code:
+        return jsonify({'success': False, 'error': '请输入基金代码'})
+    
+    # 自动获取基金名称
+    if not name:
+        quote = get_realtime_quote(code)
+        if quote:
+            name = quote['name']
+    
+    success = mgr.add(
+        code=code,
+        name=name,
+        shares=data.get('shares', 0),
+        cost=data.get('cost', 0),
+        note=data.get('note', '')
+    )
+    
+    if success:
+        return jsonify({'success': True, 'message': f'已添加 {name}'})
+    else:
+        return jsonify({'success': False, 'error': '该基金已存在'})
+
+
+@app.route('/api/holdings/<code>', methods=['DELETE'])
+def api_delete_holding(code):
+    """删除持仓"""
+    success = mgr.remove(code)
+    return jsonify({'success': success, 'message': '已删除' if success else '删除失败'})
+
+
+@app.route('/api/fund/<code>')
+def api_fund_detail(code):
+    """获取基金详情"""
+    quote = get_realtime_quote(code)
+    nav_list = get_historical_nav(code, 90)
+    
+    if nav_list:
+        analysis = analyze_fund(code, nav_list)
+    else:
+        analysis = {}
+    
+    return jsonify({
+        'success': True,
+        'quote': quote,
+        'analysis': analysis
+    })
+
+
+@app.route('/api/recommend')
+def api_recommend():
+    """推荐基金（基于动量筛选）"""
+    results = []
+    
+    # 测试更多基金
+    test_codes = list(POPULAR_FUNDS.keys())[:15]
+    
+    for code in test_codes:
+        quote = get_realtime_quote(code)
+        nav_list = get_historical_nav(code, 120)
+        
+        if nav_list and len(nav_list) > 10:
+            analysis = analyze_fund(code, nav_list)
+            results.append({
+                'code': code,
+                'name': POPULAR_FUNDS.get(code, code),
+                'quote': quote,
+                'analysis': analysis
+            })
+    
+    # 按90日动量排序)
+    
+    return jsonify({'success': True, 'data': results})
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=True)

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>推荐功能测试</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen p-10">
+    <h1 class="text-2xl font-bold mb-6">🎯 基金推荐功能测试</h1>
+    
+    <div class="mb-6">
+        <select id="type-select" class="bg-slate-700 px-4 py-2 rounded">
+            <option value="momentum">🚀 动量型</option>
+            <option value="contrarian">🔄 反转型</option>
+            <option value="low_vol">🛡️ 稳健型</option>
+            <option value="high_sharpe">📈 高夏普</option>
+            <option value="diversify">🎨 分散型</option>
+        </select>
+        <button onclick="loadRecommend()" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded ml-2">测试</button>
+    </div>
+    
+    <div id="result" class="text-slate-400">选择策略后点击测试...</div>
+    
+    <script>
+        async function loadRecommend() {
+            const type = document.getElementById('type-select').value;
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<span class="text-yellow-400">⏳ 加载中...</span>';
+            
+            const url = '/api/recommend?type=' + type + '&limit=3';
+            console.log('请求URL:', url);
+            
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                console.log('API返回:', data);
+                
+                if (data.success && data.data) {
+                    let html = '<div class="mt-4 space-y-4">';
+                    html += '<p class="text-green-400">✅ 成功! 返回' + data.data.length + '只基金</p>';
+                    data.data.forEach((f, i) => {
+                        html += '<div class="bg-slate-800 p-4 rounded">';
+                        html += '<p class="font-bold">' + (i+1) + '. ' + f.name + ' [' + f.code + ']</p>';
+                        html += '<p>评分: <span class="text-purple-400 font-bold">' + f.score + '</span></p>';
+                        html += '<p>90日涨跌: ' + f.momentum_90d + '%</p>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = '<p class="text-red-400">❌ 失败: ' + (data.error || JSON.stringify(data)) + '</p>';
+                }
+            } catch (e) {
+                resultDiv.innerHTML = '<p class="text-red-400">❌ 错误: ' + e.message + '</p>';
+            }
+        }
+        
+        // 自动加载第一个
+        loadRecommend();
+    </script>
+</body>
+</html>

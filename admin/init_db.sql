@@ -1,0 +1,105 @@
+-- FundQuant 管理后台数据库初始化脚本
+USE funds;
+
+-- 1. 管理员表
+CREATE TABLE IF NOT EXISTS admins (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    salt VARCHAR(32) NOT NULL,
+    real_name VARCHAR(50) DEFAULT '',
+    email VARCHAR(100) DEFAULT '',
+    status TINYINT DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    last_login DATETIME DEFAULT NULL,
+    INDEX idx_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 2. 持仓表
+CREATE TABLE IF NOT EXISTS holdings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(20) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    shares DECIMAL(12,4) DEFAULT 0,
+    cost DECIMAL(10,4) DEFAULT 0,
+    nav DECIMAL(10,4) DEFAULT 0,
+    amount DECIMAL(12,2) DEFAULT 0,
+    profit DECIMAL(12,2) DEFAULT 0,
+    profit_pct DECIMAL(8,2) DEFAULT 0,
+    note TEXT,
+    status TINYINT DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 3. AI模型配置表
+CREATE TABLE IF NOT EXISTS ai_models (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    api_url VARCHAR(500) NOT NULL,
+    api_key VARCHAR(255) DEFAULT '',
+    model_id VARCHAR(100) NOT NULL,
+    timeout INT DEFAULT 30,
+    temperature DECIMAL(4,2) DEFAULT 0.50,
+    max_tokens INT DEFAULT 300,
+    is_default TINYINT DEFAULT 0,
+    status TINYINT DEFAULT 1,
+    remark TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_type (type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 4. API配置表
+CREATE TABLE IF NOT EXISTS api_configs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    provider VARCHAR(50) NOT NULL,
+    api_url VARCHAR(500) NOT NULL,
+    api_key VARCHAR(255) DEFAULT '',
+    rate_limit INT DEFAULT 100,
+    status TINYINT DEFAULT 1,
+    last_check DATETIME DEFAULT NULL,
+    last_response INT DEFAULT 0,
+    remark TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 5. 登录日志表
+CREATE TABLE IF NOT EXISTS login_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    admin_id INT DEFAULT NULL,
+    username VARCHAR(50) NOT NULL,
+    ip VARCHAR(50) DEFAULT '',
+    user_agent TEXT,
+    login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'success',
+    fail_reason VARCHAR(100) DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 6. 操作日志表
+CREATE TABLE IF NOT EXISTS operation_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    admin_id INT NOT NULL,
+    module VARCHAR(50) NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    target_type VARCHAR(50) DEFAULT '',
+    target_id INT DEFAULT NULL,
+    detail TEXT,
+    ip VARCHAR(50) DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 7. 系统设置表
+CREATE TABLE IF NOT EXISTS system_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    setting_key VARCHAR(100) UNIQUE NOT NULL,
+    setting_value TEXT,
+    setting_type VARCHAR(20) DEFAULT 'string',
+    remark VARCHAR(255) DEFAULT '',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

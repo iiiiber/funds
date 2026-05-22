@@ -1,0 +1,32 @@
+MINIMAX_API_KEY=your_api_key_here
+
+# FundQuant 配置文件
+
+app:
+  name: "FundQuant"
+  debug: false
+  port: 8080
+
+database:
+  path: "data/fundquant.db"
+
+data:
+  ttfund_base: "https://fundgz.1234567.com.cn/js"
+  refresh_interval: 300
+  holdings_file: "data/holdings.json"
+
+notification:
+  enabled: false
+  telegram:
+    bot_token: ""
+    chat_id: ""
+  feishu:
+    webhook_url: ""
+
+# MySQL 数据库配置（管理后台）
+db:
+  host: "localhost"
+  port: 3306
+  user: "funds"
+  password: "your_password_here"
+  database: "funds"

@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.env
+*.log
+data/
+backups/
+*.db
+*.sqlite
+venv/
+.venv/

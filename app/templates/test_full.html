@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>FundQuant 全功能测试</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen p-6">
+    <h1 class="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+        📈 FundQuant 全功能测试
+    </h1>
+    
+    <div class="grid md:grid-cols-2 gap-6">
+        <!-- 持仓测试 -->
+        <div class="bg-slate-800 rounded-xl p-6">
+            <h2 class="text-xl font-semibold mb-4">📊 持仓管理</h2>
+            <button onclick="testHoldings()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">获取持仓</button>
+            <div id="holdings-result" class="mt-4 text-sm"></div>
+        </div>
+        
+        <!-- 推荐测试 -->
+        <div class="bg-slate-800 rounded-xl p-6">
+            <h2 class="text-xl font-semibold mb-4">🏆 基金推荐</h2>
+            <div class="flex flex-wrap gap-2 mb-4">
+                <button onclick="testRecommend('momentum')" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-sm">动量</button>
+                <button onclick="testRecommend('contrarian')" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-sm">反转</button>
+                <button onclick="testRecommend('low_vol')" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-sm">稳健</button>
+                <button onclick="testRecommend('high_sharpe')" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-sm">高夏普</button>
+                <button onclick="testRecommend('diversify')" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-sm">分散</button>
+            </div>
+            <div id="recommend-result" class="text-sm"></div>
+        </div>
+        
+        <!-- 相似基金测试 -->
+        <div class="bg-slate-800 rounded-xl p-6">
+            <h2 class="text-xl font-semibold mb-4">🔍 相似基金</h2>
+            <input type="text" id="similar-code" value="510300" class="bg-slate-700 px-3 py-2 rounded w-32">
+            <button onclick="testSimilar()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2">查找</button>
+            <div id="similar-result" class="mt-4 text-sm"></div>
+        </div>
+        
+        <!-- AI分析测试 -->
+        <div class="bg-slate-800 rounded-xl p-6">
+            <h2 class="text-xl font-semibold mb-4">🤖 AI分析</h2>
+            <input type="text" id="ai-code" value="015790" class="bg-slate-700 px-3 py-2 rounded w-32">
+            <button onclick="testAI()" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded ml-2">分析</button>
+            <div id="ai-result" class="mt-4 text-sm"></div>
+        </div>
+    </div>
+    
+    <div id="logs" class="mt-6 bg-slate-800 rounded-xl p-6">
+        <h2 class="text-xl font-semibold mb-4">📋 测试日志</h2>
+        <div id="log-content" class="font-mono text-sm text-slate-400 h-64 overflow-y-auto"></div>
+    </div>
+
+    <script>
+        function log(msg) {
+            const now = new Date().toLocaleTimeString();
+            document.getElementById('log-content').innerHTML += '<p>[<span class="text-green-400">' + now + '</span>] ' + msg + '</p>';
+            document.getElementById('log-content').scrollTop = document.getElementById('log-content').scrollHeight;
+        }
+        
+        async function testHoldings() {
+            log('测试持仓API...');
+            try {
+                const res = await fetch('/api/holdings');
+                const data = await res.json();
+                if (data.success) {
+                    log('✅ 持仓数量: ' + data.data.length);
+                    document.getElementById('holdings-result').innerHTML = data.data.map(f => 
+                        '<div class="py-1">' + f.name + ' [' + f.code + ']</div>'
+                    ).join('');
+                } else {
+                    log('❌ 失败: ' + data.error);
+                }
+            } catch (e) {
+                log('❌ 错误: ' + e.message);
+            }
+        }
+        
+        async function testRecommend(type) {
+            log('测试推荐 [' + type + ']...');
+            try {
+                const res = await fetch('/api/recommend?type=' + type + '&limit=3');
+                const data = await res.json();
+                if (data.success && data.data.length > 0) {
+                    const top = data.data[0];
+                    log('✅ ' + type + ': ' + top.name + ' 评分=' + top.score);
+                    document.getElementById('recommend-result').innerHTML = data.data.map((f, i) => 
+                        '<div class="py-1"><span class="text-gray-500">' + (i+1) + '</span> ' + f.name + ' <span class="text-purple-400">score=' + f.score + '</span> 90d=' + f.momentum_90d + '%</div>'
+                    ).join('');
+                } else {
+                    log('❌ 无数据');
+                }
+            } catch (e) {
+                log('❌ 错误: ' + e.message);
+            }
+        }
+        
+        async function testSimilar() {
+            const code = document.getElementById('similar-code').value;
+            log('测试相似基金 [' + code + ']...');
+            try {
+                const res = await fetch('/api/recommend/similar?code=' + code + '&limit=3');
+                const data = await res.json();
+                if (data.success) {
+                    log('✅ 找到 ' + data.data.length + ' 只相似基金');
+                    document.getElementById('similar-result').innerHTML = data.data.map(f => 
+                        '<div class="py-1">' + f.name + ' <span class="text-blue-400">相似度=' + f.similarity + '%</span></div>'
+                    ).join('');
+                }
+            } catch (e) {
+                log('❌ 错误: ' + e.message);
+            }
+        }
+        
+        async function testAI() {
+            const code = document.getElementById('ai-code').value;
+            log('测试AI分析 [' + code + ']...');
+            try {
+                const res = await fetch('/api/analyze/' + code);
+                const data = await res.json();
+                if (data.success) {
+                    const ai = data.data.ai_report || {};
+                    log('✅ AI评分=' + ai.score + ' 建议=' + ai.recommendation);
+                    document.getElementById('ai-result').innerHTML = '<div class="text-purple-400">评分: ' + ai.score + '</div><div>' + ai.recommendation + '</div><div class="text-slate-400 mt-2 text-xs">' + (ai.ai_report || '').substring(0, 100) + '...</div>';
+                } else {
+                    log('❌ 失败: ' + data.error);
+                }
+            } catch (e) {
+                log('❌ 错误: ' + e.message);
+            }
+        }
+        
+        // 初始测试
+        setTimeout(() => { testHoldings(); testRecommend('momentum'); testSimilar(); testAI(); }, 500);
+    </script>
+</body>
+</html>
